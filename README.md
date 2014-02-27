@@ -1,4 +1,4 @@
 mproxy
 ======
 
-yet another simple mysql proxy written in Go
+yet another mysql proxy written in Go

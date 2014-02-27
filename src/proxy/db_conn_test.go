@@ -13,7 +13,7 @@ func Test_DbConn_Conn(t *testing.T) {
 		if err := dbConn.Ping(); err != nil {
 			t.Error("ping error")
 		}
-		if err := dbConn.Prepare("select * from dsb;"); err != nil {
+		if err := dbConn.Prepare("select * from db;"); err != nil {
 			t.Error("prepare error ", err.Error())
 		}
 	}

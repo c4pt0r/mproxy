@@ -65,7 +65,6 @@ func (c *DbConn) Reconnect() error {
 		return err
 	}
 	if _, err := c.ReadOK(); err != nil {
-		log.Printf("read auth packet response error %s", err.Error())
 		return err
 	}
 	return nil
@@ -172,20 +171,16 @@ func (c *DbConn) WriteAuthPacket() error {
 	return c.WritePacket(data)
 }
 
-func (c *DbConn) ReadOK() (*Result, error) {
+func (c *DbConn) ReadOK() (*OkResult, error) {
 	data, err := c.ReadPacket()
 	if err != nil {
 		log.Println(err.Error())
 		return nil, err
 	}
 	if data[0] == byte(iOK) {
-		result := c.ParseOKPacket(data)
-		log.Println("OK result:", result)
-		return result, nil
+		return c.ParseOKPacket(data), nil
 	} else if data[0] == byte(iERR) {
-		err := fmt.Errorf("error packet")
-		log.Println(err.Error())
-		return nil, err
+		return nil, c.ParseErrPacket(data)
 	} else {
 		err := fmt.Errorf("invalid packet")
 		log.Println(err.Error())
@@ -193,34 +188,34 @@ func (c *DbConn) ReadOK() (*Result, error) {
 	}
 }
 
-func (c *DbConn) ParseOKPacket(b []byte) *Result {
-	ret := new(Result)
+func (c *DbConn) ParseOKPacket(b []byte) *OkResult {
+	r := new(OkResult)
 	pos := 1
 	var n int
-	ret.affectedRows, _, n = readLengthEncodedInteger(b[pos:])
+	r.AffectedRows, _, n = readLengthEncodedInteger(b[pos:])
 	pos += n
-	ret.lastInsertId, _, n = readLengthEncodedInteger(b[pos:])
+	r.LastInsertId, _, n = readLengthEncodedInteger(b[pos:])
 	pos += n
 
-	ret.status = binary.LittleEndian.Uint16(b[pos:])
-	c.status = ret.status
+	r.Status = binary.LittleEndian.Uint16(b[pos:])
+	c.status = r.Status
 
-	return ret
+	return r
 }
 
-func (c *DbConn) ParseErrPacket(b []byte) *Result {
-	r := new(Result)
+func (c *DbConn) ParseErrPacket(b []byte) error {
+	r := new(MySQLError)
 
 	pos := 1
 
-	r.errcode = binary.LittleEndian.Uint16(b[pos:])
+	r.Errcode = binary.LittleEndian.Uint16(b[pos:])
 	pos += 2
 
 	pos++
-	//e.State = string(b[pos : pos+5])
+	r.State = string(b[pos : pos+5])
 	pos += 5
 
-	r.info = string(b[pos:])
+	r.Info = string(b[pos:])
 
 	return r
 }
@@ -251,12 +246,12 @@ func (c *DbConn) Prepare(query string) error {
 	}
 
 	if data[0] != iOK {
-		err := fmt.Errorf("invalid prepare packet")
-		result := c.ParseErrPacket(data)
-		log.Println(result.info, result.errcode, result.status)
+		err := c.ParseErrPacket(data)
+		log.Println(err.Error())
 		return err
 	} else {
-
+		result := c.ParseOKPacket(data)
+		log.Println("Prepare OK", result.Status)
 	}
 
 	log.Println("prepare response packet: ", data)

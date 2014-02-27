@@ -90,18 +90,18 @@ func (c *DbConn) ReadHandshake() error {
     pos += 2
 
     if len(data) > pos {
-		pos += 1
+        pos += 1
 
-		c.status = binary.LittleEndian.Uint16(data[pos : pos+2])
-		pos += 2
+        c.status = binary.LittleEndian.Uint16(data[pos : pos+2])
+        pos += 2
 
-		c.capability = uint32(binary.LittleEndian.Uint16(data[pos:pos+2]))<<16 | c.capability
+        c.capability = uint32(binary.LittleEndian.Uint16(data[pos:pos+2]))<<16 | c.capability
 
-		pos += 2
+        pos += 2
 
-		//skip auth data len or [00]
-		//skip reserved (all [00])
-		pos += 10 + 1
+        //skip auth data len or [00]
+        //skip reserved (all [00])
+        pos += 10 + 1
 
         // steal from go-mysql-driver
         // second part of the password cipher [mininum 13 bytes],
@@ -203,8 +203,8 @@ func (c *DbConn) genPassword(password []byte) []byte {
     crypt.Write(hash)
     scramble := crypt.Sum(nil)
 
-	for i := range scramble {
-		scramble[i] ^= t[i]
-	}
-	return scramble
+    for i := range scramble {
+        scramble[i] ^= t[i]
+    }
+    return scramble
 }

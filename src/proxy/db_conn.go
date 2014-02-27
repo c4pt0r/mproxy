@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 type DbConn struct {
@@ -21,6 +22,7 @@ type DbConn struct {
 	cipher     []byte
 	capability uint32
 	status     uint16
+	lastPing   int64
 }
 
 func NewDbConn(cfg *config) *DbConn {
@@ -62,7 +64,7 @@ func (c *DbConn) Reconnect() error {
 		log.Printf("write auth packet error %s", err.Error())
 		return err
 	}
-	if err := c.ReadOK(); err != nil {
+	if _, err := c.ReadOK(); err != nil {
 		log.Printf("read auth packet response error %s", err.Error())
 		return err
 	}
@@ -170,25 +172,109 @@ func (c *DbConn) WriteAuthPacket() error {
 	return c.WritePacket(data)
 }
 
-func (c *DbConn) ReadOK() error {
+func (c *DbConn) ReadOK() (*Result, error) {
 	data, err := c.ReadPacket()
-	log.Println(data)
 	if err != nil {
 		log.Println(err.Error())
-		return err
+		return nil, err
 	}
-
 	if data[0] == byte(iOK) {
-		return nil
+		result := c.ParseOKPacket(data)
+		log.Println("OK result:", result)
+		return result, nil
 	} else if data[0] == byte(iERR) {
 		err := fmt.Errorf("error packet")
 		log.Println(err.Error())
-		return err
+		return nil, err
 	} else {
 		err := fmt.Errorf("invalid packet")
 		log.Println(err.Error())
+		return nil, err
+	}
+}
+
+func (c *DbConn) ParseOKPacket(b []byte) *Result {
+	ret := new(Result)
+	pos := 1
+	var n int
+	ret.affectedRows, _, n = readLengthEncodedInteger(b[pos:])
+	pos += n
+	ret.lastInsertId, _, n = readLengthEncodedInteger(b[pos:])
+	pos += n
+
+	ret.status = binary.LittleEndian.Uint16(b[pos:])
+	c.status = ret.status
+
+	return ret
+}
+
+func (c *DbConn) ParseErrPacket(b []byte) *Result {
+	r := new(Result)
+
+	pos := 1
+
+	r.errcode = binary.LittleEndian.Uint16(b[pos:])
+	pos += 2
+
+	pos++
+	//e.State = string(b[pos : pos+5])
+	pos += 5
+
+	r.info = string(b[pos:])
+
+	return r
+}
+
+// write simple command
+func (c *DbConn) WriteCmd(cmd byte, args []byte) error {
+	c.seq = 0
+	if args == nil {
+		return c.WritePacket([]byte{
+			cmd,
+		})
+	}
+	// if we got arguments
+	length := len(args) + 1
+	data := make([]byte, length)
+	data[0] = cmd
+	copy(data[1:], args)
+	return c.WritePacket(data)
+}
+
+func (c *DbConn) Prepare(query string) error {
+	if err := c.WriteCmd(comStmtPrepare, []byte(query)); err != nil {
 		return err
 	}
+	data, err := c.ReadPacket()
+	if err != nil {
+		return err
+	}
+
+	if data[0] != iOK {
+		err := fmt.Errorf("invalid prepare packet")
+		result := c.ParseErrPacket(data)
+		log.Println(result.info, result.errcode, result.status)
+		return err
+	} else {
+
+	}
+
+	log.Println("prepare response packet: ", data)
+	return nil
+}
+
+func (c *DbConn) Ping() error {
+	n := time.Now().Unix()
+	if n-c.lastPing > 30 {
+		if err := c.WriteCmd(comPing, nil); err != nil {
+			return err
+		}
+		if _, err := c.ReadOK(); err != nil {
+			return err
+		}
+		c.lastPing = n
+	}
+	return nil
 }
 
 func (c *DbConn) genPassword(password []byte) []byte {
